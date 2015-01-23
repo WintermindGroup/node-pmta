@@ -70,6 +70,18 @@ Handle<Value> PMTAConnection::New(const Arguments& args) {
         String::New("Connection(host, port, [name], [password])")));
   }
 
+  if (!args[0]->IsString()) {
+    return ThrowException(Exception::TypeError(
+        String::New("Connection(): `host` argument must be a string"))
+    );
+  }
+
+  if (!args[1]->IsInt32()) {
+    return ThrowException(Exception::TypeError(
+      String::New("Connection(): `port` argument must be an integer"))
+    );
+  }
+
   v8::String::Utf8Value param1(args[0]->ToString());
   const char* host = strdup(*param1);
   int port = args[1]->ToInteger()->Value();
@@ -172,6 +184,12 @@ void PMTAConnection::AsyncSubmitAfter (uv_work_t* req) {
 Handle<Value> PMTAConnection::SubmitSync (const Arguments& args) {
   HandleScope scope;
 
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+      String::New("submitSync(message): missing argument"))
+    );
+  }
+
   PMTAConnection* obj = ObjectWrap::Unwrap<PMTAConnection>(args.This());
   PMTAMessage* mobj = ObjectWrap::Unwrap<PMTAMessage>(args[0]->ToObject());
 
@@ -228,13 +246,19 @@ Handle<Value> PMTAMessage::New(const Arguments& args) {
 
   if (!args.IsConstructCall()) {
     return ThrowException(Exception::TypeError(
-        String::New("Use the new operator to create instances of this object"))
+        String::New("Message(sender): Use `new` operator"))
+    );
+  }
+
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+      String::New("Message(sender): insufficient arguments"))
     );
   }
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(
-        String::New("First argument must be a string")));
+        String::New("Message(sender): `sender` must be a string")));
   }
 
   v8::String::Utf8Value param1(args[0]->ToString());
@@ -260,9 +284,9 @@ Handle<Value> PMTAMessage::Sender(const Arguments& args) {
 Handle<Value> PMTAMessage::SetVerp(const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsBoolean()) {
+  if (!args[0]->IsBoolean() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("setVerp() argument 1 should be bool")));
+        String::New("setVerp(true|false)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -277,9 +301,9 @@ Handle<Value> PMTAMessage::SetVerp(const Arguments& args) {
 Handle<Value> PMTAMessage::SetEncoding(const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsString()) {
+  if (!args[0]->IsString() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("setEncoding: arg 1 requires PmtaMsgENCODING")));
+        String::New("setEncoding(PmtaMsgENCODING messageEncoding)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -306,9 +330,9 @@ Handle<Value> PMTAMessage::SetEncoding(const Arguments& args) {
 Handle<Value> PMTAMessage::SetJobId (const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsString()) {
+  if (!args[0]->IsString() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("setJobId: arg 1 requires a string")));
+        String::New("setJobId(String jobid)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -323,9 +347,9 @@ Handle<Value> PMTAMessage::SetJobId (const Arguments& args) {
 Handle<Value> PMTAMessage::SetReturnType(const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsString()) {
+  if (!args[0]->IsString() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("setReturnType: arg 1 requires string")));
+        String::New("setReturnType(PmtaMsgRETURN returnType)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -350,9 +374,9 @@ Handle<Value> PMTAMessage::SetReturnType(const Arguments& args) {
 Handle<Value> PMTAMessage::SetEnvelopeId(const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsString()) {
+  if (!args[0]->IsString() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("setEnvelopeId: string required for arg1")));
+        String::New("setEnvelopeId(String envelopeId)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -367,9 +391,9 @@ Handle<Value> PMTAMessage::SetEnvelopeId(const Arguments& args) {
 Handle<Value> PMTAMessage::SetVirtualMta(const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsString()) {
+  if (!args[0]->IsString() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("setVirtualMta: string required for arg 1")));
+        String::New("setVirtualMta(String vmta)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -384,9 +408,9 @@ Handle<Value> PMTAMessage::SetVirtualMta(const Arguments& args) {
 Handle<Value> PMTAMessage::BeginPart(const Arguments& args) {
   HandleScope scope;
 
-  if (!args[0]->IsInt32()) {
+  if (!args[0]->IsInt32() || args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-        String::New("beginPart: integer required for arg 1")));
+        String::New("beginPart(Int part)")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -394,7 +418,7 @@ Handle<Value> PMTAMessage::BeginPart(const Arguments& args) {
 
   if (part <= 1) {
     return ThrowException(Exception::TypeError(
-        String::New("beginPart: arg 1 must be greater than 1")));
+        String::New("beginPart(Int part): `part` must be greater than 1")));
   }
 
   obj->message_->beginPart(part);
@@ -407,17 +431,18 @@ Handle<Value> PMTAMessage::AddData (const Arguments& args) {
 
   if (args.Length() < 2) {
     return ThrowException(Exception::TypeError(
-        String::New("addData(data, length): insufficient arguments")));
+      String::New("addData(String data, Int len): insufficient arguments")));
   }
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(
-        String::New("addData(data, length): arg 1 must be a string")));
+      String::New("addData(String data, Int len): `data` must be a string"))
+    );
   }
 
   if (!args[1]->IsInt32()) {
     return ThrowException(Exception::TypeError(
-        String::New("addData(data, length): arg 2 must be an integer")));
+      String::New("addData(String data, Int len): `len` must be an integer")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -435,17 +460,20 @@ Handle<Value> PMTAMessage::AddMergeData (const Arguments& args) {
 
   if (args.Length() < 2) {
     return ThrowException(Exception::TypeError(
-        String::New("addData(data, length): insufficient arguments")));
+      String::New("addMergeData(String data, Int len): insufficient arguments"))
+    );
   }
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(
-        String::New("addData(data, length): arg 1 must be a string")));
+      String::New(
+        "addMergeData(String data, Int len): `data` must be a string")));
   }
 
   if (!args[1]->IsInt32()) {
     return ThrowException(Exception::TypeError(
-        String::New("addData(data, length): arg 2 must be an integer")));
+      String::New(
+        "addMergeData(String data, Int len): `len` must be an integer")));
   }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
@@ -469,6 +497,11 @@ Handle<Value> PMTAMessage::AddDateHeader (const Arguments& args) {
 
 Handle<Value> PMTAMessage::AddRecipient (const Arguments& args) {
   HandleScope scope;
+
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+      String::New("addRecipient(Recipient recipient)")));
+  }
 
   PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
   PMTARecipient* robj = ObjectWrap::Unwrap<PMTARecipient>(args[0]->ToObject());
@@ -508,8 +541,13 @@ Handle<Value> PMTARecipient::New(const Arguments& args) {
 
   if (!args.IsConstructCall()) {
     return ThrowException(Exception::TypeError(
-        String::New("Use the new operator to create instances of this object"))
+      String::New("Recipient(String address) use `new` operator"))
     );
+  }
+
+  if (!args[0]->IsString()) {
+    return ThrowException(Exception::TypeError(
+      String::New("Recipient(String address): `address must be a string`")));
   }
 
   v8::String::Utf8Value param1(args[0]->ToString());
@@ -529,6 +567,25 @@ Handle<Value> PMTARecipient::New(const Arguments& args) {
 Handle<Value> PMTARecipient::DefineVariable(const Arguments& args) {
   HandleScope scope;
 
+  if (!args.Length() < 2) {
+    return ThrowException(Exception::TypeError(
+      String::New("defineVariable(String name, String value)")));
+  }
+
+  if (!args[0]->IsString()) {
+    return ThrowException(Exception::TypeError(
+      String::New(
+        "defineVariable(String name, String value): `name` must be a string"))
+      );
+    }
+
+  if (!args[0]->IsString()) {
+    return ThrowException(Exception::TypeError(
+      String::New(
+        "defineVariable(String name, String value): `value` must be a string"))
+    );
+  }
+
   PMTARecipient* obj = ObjectWrap::Unwrap<PMTARecipient>(args.This());
   v8::String::Utf8Value p0(args[0]->ToString());
   v8::String::Utf8Value p1(args[1]->ToString());
@@ -542,6 +599,11 @@ Handle<Value> PMTARecipient::DefineVariable(const Arguments& args) {
 
 Handle<Value> PMTARecipient::SetNotify(const Arguments& args) {
   HandleScope scope;
+
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+      String::New("setNotify(PmtaRcptNOTIFY)")));
+  }
 
   PMTARecipient* obj = ObjectWrap::Unwrap<PMTARecipient>(args.This());
   int notifywhen = args[0]->ToInteger()->Value();
