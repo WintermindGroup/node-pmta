@@ -20,6 +20,15 @@
 using namespace v8;
 using namespace pmta::submitter;
 
+struct Baton {
+  Persistent<Function> callback;
+  bool error;
+  std::string error_message;
+
+  PMTAConnection* conn_;
+  PMTAMessage* message_;
+};
+
 Persistent<FunctionTemplate> PMTAConnection::constructor;
 
 void PMTAConnection::Init(Handle<Object> target) {
@@ -33,6 +42,7 @@ void PMTAConnection::Init(Handle<Object> target) {
   constructor->SetClassName(name);
 
   NODE_SET_PROTOTYPE_METHOD(constructor, "submit", Submit);
+  NODE_SET_PROTOTYPE_METHOD(constructor, "submitSync", SubmitSync);
 
   target->Set(name, constructor->GetFunction());
 }
@@ -87,8 +97,79 @@ Handle<Value> PMTAConnection::New(const Arguments& args) {
   return args.This();
 }
 
-
 Handle<Value> PMTAConnection::Submit (const Arguments& args) {
+  HandleScope scope;
+
+  if (!args[1]->IsFunction()) {
+    return ThrowException(Exception::TypeError(
+        String::New("submit(): arg 2 must be a callback"))
+    );
+  }
+
+  if (args.Length() < 2) {
+    return ThrowException(Exception::TypeError(
+        String::New("not enough arguments: submit(message, callback)"))
+    );
+  }
+
+  Local<Function> callback = Local<Function>::Cast(args[1]);
+
+  Baton* baton = new Baton();
+  baton->error = false;
+  baton->callback = Persistent<Function>::New(callback);
+  baton->conn_ = ObjectWrap::Unwrap<PMTAConnection>(args.This());
+  baton->message_ = ObjectWrap::Unwrap<PMTAMessage>(args[0]->ToObject());
+
+  uv_work_t *req = new uv_work_t();
+  req->data = baton;
+
+  int status = uv_queue_work(uv_default_loop(), req, AsyncSubmitWork,
+        (uv_after_work_cb)AsyncSubmitAfter);
+
+  assert(status == 0);
+
+  return Undefined();
+}
+
+void PMTAConnection::AsyncSubmitWork (uv_work_t* req) {
+  Baton* baton = static_cast<Baton*>(req->data);
+
+  try {
+    baton->conn_->connection_->submit(*baton->message_->message_);
+  } catch (std::exception& e) {
+    baton->error = true;
+    baton->error_message = e.what();
+  }
+}
+
+void PMTAConnection::AsyncSubmitAfter (uv_work_t* req) {
+  HandleScope scope;
+  Baton* baton = static_cast<Baton*>(req->data);
+
+  Local<Object> ret = Object::New();
+
+  if (baton->error) {
+    ret->Set(String::NewSymbol("submitted"), False());
+    ret->Set(String::NewSymbol("errorMessage"), 
+        String::New(baton->error_message.c_str()));
+  } else {
+    ret->Set(String::NewSymbol("submitted"), True());
+  }
+
+  Local<Value> argv[1] = { ret };
+
+  TryCatch try_catch;
+  baton->callback->Call(Context::GetCurrent()->Global(), 1, argv);
+  if (try_catch.HasCaught()) {
+    node::FatalException(try_catch);
+  }
+
+  baton->callback.Dispose();
+  delete baton;
+  delete req;
+}
+    
+Handle<Value> PMTAConnection::SubmitSync (const Arguments& args) {
   HandleScope scope;
 
   PMTAConnection* obj = ObjectWrap::Unwrap<PMTAConnection>(args.This());

@@ -43,5 +43,5 @@ msg.setJobId(job);
 msg.setVerp(verp);
 
 var cn = new pmta.Connection(host, port);
-var res = cn.submit(msg);
+var res = cn.submitSync(msg);
 console.log(res);
