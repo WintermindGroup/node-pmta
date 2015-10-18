@@ -47,11 +47,9 @@ Objects and methods in the module mirror those in the pmta C++ submission API.
         vmta  = "default",
         port  = 2525,
         verp  = true,
-        job   = "xxx000xxx";
+        job   = "000000999";
 
     var msg = new pmta.Message("sender@domain.tld");
-    var rcpt = new pmta.Recipient("jane@domain.tld");
-    rcpt.defineVariable("to", "jane@domain.tld");
 
     for (var j=0; j < recipients.length; j++) {
       var rcpt = new pmta.Recipient(recipients[j].to);
@@ -67,6 +65,6 @@ Objects and methods in the module mirror those in the pmta C++ submission API.
     msg.setJobId(job);
     msg.setVerp(verp);
 
-    var cn = new pmta.Connection(host, port);
-    var res = cn.submit(msg);
-    console.log(res);
+    var pmta_connection   = new pmta.Connection(host, port);
+    var submission_result = pmta_connection.submitSync(msg);
+    console.log(submission_result);
