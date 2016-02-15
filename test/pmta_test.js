@@ -26,8 +26,8 @@
 var pmta = require('../index.js');
 
 // PMTA options. Change as needed to reflect your installation
-var pmta_host = "127.0.0.1";
-var pmta_port = 2525;
+var pmta_host = "10.0.0.47";
+var pmta_port = 25;
 
 // Message options. Change as needed.
 var vmta      = "default";
@@ -59,6 +59,7 @@ var msg = new pmta.Message(sender);
 
 for (var j=0; j < recipients.length; j++) {
   var rcpt = new pmta.Recipient(recipients[j].to);
+  rcpt.defineVariable("*parts", "1");
   rcpt.defineVariable("to", recipients[j].to);
   rcpt.defineVariable("fname", recipients[j].fname);
   msg.addRecipient(rcpt);
@@ -72,5 +73,5 @@ msg.setJobId(job);
 msg.setVerp(verp);
 
 var cn = new pmta.Connection(pmta_host, pmta_port);
-var res = cn.submitSync(msg);
+var res = cn.submit(msg);
 console.log(res);

@@ -1,4 +1,17 @@
-/* Copyright (C) 2015  Dan Nielsen <dnielsen@reachmail.com>
+/*! \file pmta.h The whole of the node-pmta can be found here and in pmta.cpp
+ *
+ * \mainpage
+ * 
+ * \section synopsis Synopsis
+ * This module provides a NodeJS wrapper for the PMTA API.
+ *
+ * \section toc Table of Contents
+ * - \ref license "License"
+ * - \ref credits "Credits"
+ *
+ * \section license License
+ * <div class="license">
+ * Copyright (C) 2015  Dan Nielsen <dnielsen@reachmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,10 +25,18 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-#ifndef PMTA_H 
-#define PMTA_H
+ * </div>
+ *
+ * \section credits Credits
+ * <div class="license">
+ * Portability between NodeJS versions provided by nan 
+ *   [ https://www.npmjs.com/package/nan ]
+ * </div>
+ */
+#ifndef PMTA_RECIPIENT_H
+#define PMTA_RECIPIENT_H
 
+#include <nan.h>
 #include <node.h>
 #include <string.h>
 
@@ -23,82 +44,217 @@
 #include "submitter/Recipient.hxx"
 #include "submitter/Connection.hxx"
 
-class PMTAConnection : public node::ObjectWrap {
-  
+/*!
+ * \addtogroup connection PMTA Connection
+ * \brief Represents a connection to a PMTA host.
+ */
+class PMTAConnection : public Nan::ObjectWrap {
+
   public:
-    static v8::Persistent<v8::FunctionTemplate> constructor;
-    static void Init(v8::Handle<v8::Object> target);
-    pmta::submitter::Connection* connection_;
+    static void Init (v8::Local<v8::Object> exports);
+    pmta::submitter::Connection* mConnection;
+
+    ~PMTAConnection (void);
 
   protected:
-    PMTAConnection (const char* host, int port, const char* name = "",
-        const char* password = "");
+    /*!
+     * \brief Creates a new connection to a PMTA host
+     * \param pHost Connection hostname
+     * \param pPort Connection port
+     * \param pName User name (optional)
+     * \param pPassword Password (optional);
+     *
+     * Objects derived from this class represent a connection to a PMTA
+     * instance on a remote host or the local host. 
+     */
+    PMTAConnection (const char* pHost, int pPort, const char* pName = "",
+      const char* pPassword = "");
 
-    static v8::Handle<v8::Value> New(const v8::Arguments& args);
-    static v8::Handle<v8::Value> Submit(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SubmitSync(const v8::Arguments& args);
-    static void AsyncSubmitWork(uv_work_t* req);
-    static void AsyncSubmitAfter(uv_work_t* req);
+    static void New (const Nan::FunctionCallbackInfo<v8::Value>& info);
 
-    const char* host_;
-    int port_;
-    const char* name_;
-    const char* password_;
+    /*!
+     * \brief Submits a message to the connection
+     * \param pMessage A Message object
+     *
+     * This method submits the supplied Message object to a PMTA host.
+     */
+    static void submit (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    const char *mHost;
+    int         mPort;
+    const char *mName;
+    const char *mPassword;
 
   private:
-    ~PMTAConnection();
+    static Nan::Persistent<v8::Function> constructor;
 };
 
-class PMTAMessage : public node::ObjectWrap {
+/*!
+ *
+ * \addtogroup message PMTA message
+ * \brief Represents a PMTA message
+ *
+ * Objects derived from this class represent a single e-mail message.
+ */
+class PMTAMessage : public Nan::ObjectWrap {
 
   public:
-    static v8::Persistent<v8::FunctionTemplate> constructor;
-    static void Init(v8::Handle<v8::Object> target);
-    pmta::submitter::Message* message_;
+    static void Init (v8::Local<v8::Object> exports);
+    pmta::submitter::Message* mMessage;
+
+    ~PMTAMessage(void);
 
   protected:
-    PMTAMessage (const char* sender);
+    /*!
+     * \brief Create as a PMTA message
+     * \param pSender The message sender, i.e. Envelope From
+     */
+    PMTAMessage (const char* pSender);
 
-    static v8::Handle<v8::Value> New(const v8::Arguments& args);
-    static v8::Handle<v8::Value> Sender(const v8::Arguments& args);
-    static v8::Handle<v8::Value> AddData(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetVerp(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetJobId(const v8::Arguments& args);
-    static v8::Handle<v8::Value> BeginPart(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetEncoding(const v8::Arguments& args);
-    static v8::Handle<v8::Value> AddRecipient(const v8::Arguments& args);
-    static v8::Handle<v8::Value> AddMergeData(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetReturnType(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetEnvelopeId(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetVirtualMta(const v8::Arguments& args);
-    static v8::Handle<v8::Value> AddDateHeader(const v8::Arguments& args);
+    static void New          (const Nan::FunctionCallbackInfo<v8::Value>& info);
 
-    const char* sender_;
+    /*!
+     * \brief Convenience function, simply returns the Envelope From for 
+     *        this message.
+     * \return Message envelope from
+     */
+    static void sender       (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Add a section of data to the message. This can be a much or as 
+     *        little of the message as is currently available. Anything from
+     *        a single header to the entire message can be added.
+     * \param pData. The data string to add to message.
+     */
+    static void addData      (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Set VERP (Variable Envelope Return-Path) for a message. Turning
+     *        this value on will modify the Return-Path of the message to be 
+     *        a concatenation of the From field and the Return-Path field to 
+     *        create a unique Return-Path. 
+     * \param VERP boolean T/F
+     */
+    static void setVerp      (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Sets the PMTA job id for a message. The job id can be used to 
+     *        track the message through its lifetime in PMTA.
+     * \prama Job id as a string.
+     */
+    static void setJobId     (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Begins a simple message part. This can be used to create MIME
+     *        parts when composing a message directly through the interface.
+     */
+    static void beginPart    (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Set the encoding for this message. Parameter should be one of 
+     *        PmtaMsgRETURN_FULL, PmtaMsgRETURN_HEADERS, PmtaMsgENCODING_7BIT,
+     *        or PmtaMsgENCODING_8BIT, PmtaMsgENCODING_BASE64
+     * \param pEncoding Message encoding type
+     */
+    static void setEncoding  (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Adds a Recipient to the message.
+     * \param pRecipient PMTA Recipient
+     */
+    static void addRecipient (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Add merge data to the message. Similar to addData, this can
+     *        be some or all of a message but can include mail merge variables.
+     *        Merge variables are delimited with [ and ].
+     * \param pData. The data string to add to the message.
+     */
+    static void addMergeData (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Sets the return type for the message. Can be overridden by 
+     *        per-recipient values. Parameter should be one of 
+     *        PmtaRcptNOTIFY_NEVER, PmtaRcptNOTIFY_SUCCESS, 
+     *        PmtaRcptNOTIFY_FAILURE, PmtaRctpNOTIFY_DELAY
+     * \param pReturnType Message return type
+     */
+    static void setReturnType(const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Set the envelope id for the message
+     * \param pEnvelopeId.
+     */
+    static void setEnvelopeId(const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*! 
+     * \brief Set the Virtual MTA for this message.
+     * \param pVirtualMta. The Virtual MTA name.
+     */
+    static void setVirtualMta(const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Adds the Date field to the message headers
+     */
+    static void addDateHeader(const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    const char *mSender;
 
   private:
-    ~PMTAMessage();
-
+    static Nan::Persistent<v8::Function> constructor;
 };
 
-class PMTARecipient : public node::ObjectWrap {
-  
+/*!
+ *
+ * \addtogroup recipient PMTA Recipient
+ * \brief Represents a PMTA Recipient
+ *
+ * Objects derived from this class represent a single e-mail recipient.
+ */
+class PMTARecipient : public Nan::ObjectWrap {
+
   public:
-    static v8::Persistent<v8::FunctionTemplate> constructor;
-    static void Init(v8::Handle<v8::Object> target);
-    pmta::submitter::Recipient* recipient_;
+    static void Init (v8::Local<v8::Object> exports);
+    pmta::submitter::Recipient* mRecipient;
+
+    ~PMTARecipient (void);
 
   protected:
-    PMTARecipient (const char* address);
+    /*!
+     * \brief Creates a PMTA Recipient
+     * \param pRecipient. E-mail address for this recipient
+     */
+    PMTARecipient (const char* pAddress);
 
-    static v8::Handle<v8::Value> New(const v8::Arguments& args);
-    static v8::Handle<v8::Value> Address(const v8::Arguments& args);
-    static v8::Handle<v8::Value> DefineVariable(const v8::Arguments& args);
-    static v8::Handle<v8::Value> SetNotify(const v8::Arguments& args);
+    static void New (const Nan::FunctionCallbackInfo<v8::Value>& info);
 
-    const char* address_;
+    /*!
+     * \brief Convenience method, simply returns the e-mail address defined
+     *        for this recipient.
+     * \return Defined e-mail address.
+     */
+    static void address (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Defines a merge variable for this recipient.
+     * \param pVariableName Merge variable value.
+     * \param pVariableValue Merge variable value.
+     */
+    static void defineVariable (
+      const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    /*!
+     * \brief Sets the return type for the message. Parameter should be one of 
+     *        PmtaRcptNOTIFY_NEVER, PmtaRcptNOTIFY_SUCCESS, 
+     *        PmtaRcptNOTIFY_FAILURE, PmtaRctpNOTIFY_DELAY
+     * \param pReturnType Recipient return type
+     */
+    static void setNotify (const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+    const char *mAddress;
 
   private:
-    ~PMTARecipient();
+    static Nan::Persistent<v8::Function> constructor; 
 };
 
 #endif

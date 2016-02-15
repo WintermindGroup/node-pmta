@@ -1,359 +1,236 @@
-/* Copyright (C) 2015  Dan Nielsen <dnielsen@reachmail.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-#include <node.h>
-
 #include "pmta.h"
 
-using namespace v8;
 using namespace pmta::submitter;
 
-struct Baton {
-  Persistent<Function> callback;
-  bool error;
-  std::string error_message;
+/*
+ * PMTAConnection
+ */
 
-  PMTAConnection* conn_;
-  PMTAMessage* message_;
-};
+Nan::Persistent<v8::Function> PMTAConnection::constructor;
 
-Persistent<FunctionTemplate> PMTAConnection::constructor;
-
-void PMTAConnection::Init(Handle<Object> target) {
-  HandleScope scope;
-
-  Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
-  Local<String> name = String::NewSymbol("PMTAConnection");
-
-  constructor = Persistent<FunctionTemplate>::New(tpl);
-  constructor->InstanceTemplate()->SetInternalFieldCount(1);
-  constructor->SetClassName(name);
-
-  NODE_SET_PROTOTYPE_METHOD(constructor, "submit", Submit);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "submitSync", SubmitSync);
-
-  target->Set(name, constructor->GetFunction());
+PMTAConnection::PMTAConnection (const char *pHost, int pPort,
+  const char *pName, const char *pPassword)
+  : mHost(pHost), mPort(pPort), mName(pName), mPassword(pPassword) {
+  mConnection = new pmta::submitter::Connection(mHost, mPort, mName,
+    mPassword);
 }
 
-PMTAConnection::PMTAConnection(const char* host, int port, 
-    const char* name, const char* password)
-  : ObjectWrap(),
-    host_(host), port_(port), name_(name), password_(password)
-    { connection_ = new pmta::submitter::Connection(host_, port_, name_, 
-        password_); }
+void PMTAConnection::Init (v8::Local<v8::Object> exports) {
+  Nan::HandleScope scope;
 
-PMTAConnection::~PMTAConnection() { delete connection_; }
+  v8::Local<v8::FunctionTemplate> tpl = Nan::New<v8::FunctionTemplate>(New);
+  tpl->SetClassName(Nan::New("PMTAConnection").ToLocalChecked());
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
-Handle<Value> PMTAConnection::New(const Arguments& args) {
-  HandleScope scope;
+  Nan::SetPrototypeMethod(tpl,  "submit",     submit);
 
-  if (!args.IsConstructCall()) {
-    return ThrowException(Exception::TypeError(
-        String::New("Use the new operator to create instances of this object"))
-    );
+  constructor.Reset(tpl->GetFunction());
+  exports->Set(Nan::New("PMTAConnection").ToLocalChecked(),
+    tpl->GetFunction());
+}
+
+PMTAConnection::~PMTAConnection() {
+  delete mConnection;
+}
+
+void PMTAConnection::New (const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  if (!info.IsConstructCall()) {
+    Nan::ThrowError(
+      Nan::Error("Use the `new` operator to create PMTAConnection"));
+  }
+    
+  if (info.Length() < 2) {
+    Nan::ThrowError(Nan::Error("Connection(host, port, [name], [password]"));
   }
 
-  if (args.Length() < 2) {
-    return ThrowException(Exception::TypeError(
-        String::New("Connection(host, port, [name], [password])")));
+  if (!info[0]->IsString()) {
+    Nan::ThrowError(Nan::Error("Connection(): `host` must be a string"));
   }
 
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-        String::New("Connection(): `host` argument must be a string"))
-    );
+  if (!info[1]->IsInt32()) {
+    Nan::ThrowError(
+      Nan::Error("Connection(): `port` argument must be an integer"));
   }
 
-  if (!args[1]->IsInt32()) {
-    return ThrowException(Exception::TypeError(
-      String::New("Connection(): `port` argument must be an integer"))
-    );
-  }
+  v8::String::Utf8Value pHost(info[0]->ToString());
+  const char *host  = strdup(*pHost);
+  int port          = info[1]->ToInteger()->Value();
 
-  v8::String::Utf8Value param1(args[0]->ToString());
-  const char* host = strdup(*param1);
-  int port = args[1]->ToInteger()->Value();
+  const char *name;
+  const char *password;
 
-  const char* name;
-  const char* password;
-
-  if (args[2]->IsUndefined()) {
+  if (info[2]->IsUndefined()) {
     name = "";
   } else {
-    v8::String::Utf8Value param3(args[2]->ToString());
-    name = strdup(*param3);
+    v8::String::Utf8Value pName(info[2]->ToString());
+    name = strdup(*pName);
   }
 
-  if (args[3]->IsUndefined()) {
+  if (info[3]->IsUndefined()) {
     password = "";
   } else {
-    v8::String::Utf8Value param4(args[3]->ToString());
-    password = strdup(*param4);
+    v8::String::Utf8Value pPassword(info[3]->ToString());
+    password = strdup(*pPassword);
   }
 
-  PMTAConnection* obj = new PMTAConnection(host, port, name, password);
-  obj->Wrap(args.This());
-
-  return args.This();
+  PMTAConnection *obj = new PMTAConnection(host, port, name, password);
+  obj->Wrap(info.This());
+  info.GetReturnValue().Set(info.This());
 }
 
-Handle<Value> PMTAConnection::Submit (const Arguments& args) {
-  HandleScope scope;
+void PMTAConnection::submit (const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (!args[1]->IsFunction()) {
-    return ThrowException(Exception::TypeError(
-        String::New("submit(): arg 2 must be a callback"))
-    );
+  if (info.Length() < 1) {
+    Nan::ThrowError(Nan::Error("submitSync(message): missing argument"));
   }
 
-  if (args.Length() < 2) {
-    return ThrowException(Exception::TypeError(
-        String::New("not enough arguments: submit(message, callback)"))
-    );
-  }
+  PMTAConnection* connection = 
+    ObjectWrap::Unwrap<PMTAConnection>(info.Holder());
+  PMTAMessage*    message    = 
+    ObjectWrap::Unwrap<PMTAMessage>(info[0]->ToObject());
 
-  Local<Function> callback = Local<Function>::Cast(args[1]);
-
-  Baton* baton = new Baton();
-  baton->error = false;
-  baton->callback = Persistent<Function>::New(callback);
-  baton->conn_ = ObjectWrap::Unwrap<PMTAConnection>(args.This());
-  baton->message_ = ObjectWrap::Unwrap<PMTAMessage>(args[0]->ToObject());
-
-  uv_work_t *req = new uv_work_t();
-  req->data = baton;
-
-  int status = uv_queue_work(uv_default_loop(), req, AsyncSubmitWork,
-        (uv_after_work_cb)AsyncSubmitAfter);
-
-  assert(status == 0);
-
-  return Undefined();
-}
-
-void PMTAConnection::AsyncSubmitWork (uv_work_t* req) {
-  Baton* baton = static_cast<Baton*>(req->data);
-
+  v8::Local<v8::Object> ret = Nan::New<v8::Object>();
   try {
-    baton->conn_->connection_->submit(*baton->message_->message_);
+    connection->mConnection->submit(*message->mMessage);
+    Nan::Set(ret, Nan::New("submitted").ToLocalChecked(), Nan::New(true));
   } catch (std::exception& e) {
-    baton->error = true;
-    baton->error_message = e.what();
+    Nan::Set(ret, Nan::New("submitted").ToLocalChecked(), Nan::New(false));
+    Nan::Set(ret, Nan::New("errorMessage").ToLocalChecked(), 
+      Nan::New(e.what()).ToLocalChecked());
   }
+  info.GetReturnValue().Set(ret);
 }
 
-void PMTAConnection::AsyncSubmitAfter (uv_work_t* req) {
-  HandleScope scope;
-  Baton* baton = static_cast<Baton*>(req->data);
+/* 
+ * PMTAMessage
+ */
+Nan::Persistent<v8::Function> PMTAMessage::constructor;
 
-  Local<Object> ret = Object::New();
-
-  if (baton->error) {
-    ret->Set(String::NewSymbol("submitted"), False());
-    ret->Set(String::NewSymbol("errorMessage"), 
-        String::New(baton->error_message.c_str()));
-  } else {
-    ret->Set(String::NewSymbol("submitted"), True());
-  }
-
-  Local<Value> argv[1] = { ret };
-
-  TryCatch try_catch;
-  baton->callback->Call(Context::GetCurrent()->Global(), 1, argv);
-  if (try_catch.HasCaught()) {
-    node::FatalException(try_catch);
-  }
-
-  baton->callback.Dispose();
-  delete baton;
-  delete req;
+PMTAMessage::PMTAMessage (const char* psender) : mSender(psender) {
+  mMessage = new pmta::submitter::Message(mSender);
 }
-    
-Handle<Value> PMTAConnection::SubmitSync (const Arguments& args) {
-  HandleScope scope;
 
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-      String::New("submitSync(message): missing argument"))
+PMTAMessage::~PMTAMessage (void) {
+  delete mMessage;
+}
+
+void PMTAMessage::Init (v8::Local<v8::Object> exports) {
+  Nan::HandleScope scope;
+
+  v8::Local<v8::FunctionTemplate> tpl = Nan::New<v8::FunctionTemplate>(New);
+  tpl->SetClassName(Nan::New("PMTAMessage").ToLocalChecked());
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
+
+  Nan::SetPrototypeMethod(tpl, "sender",        sender);
+  Nan::SetPrototypeMethod(tpl, "addData",       addData);
+  Nan::SetPrototypeMethod(tpl, "setVerp",       setVerp);
+  Nan::SetPrototypeMethod(tpl, "setJobId",      setJobId);
+  Nan::SetPrototypeMethod(tpl, "beginPart",     beginPart);
+  Nan::SetPrototypeMethod(tpl, "setEncoding",   setEncoding);
+  Nan::SetPrototypeMethod(tpl, "addRecipient",  addRecipient);
+  Nan::SetPrototypeMethod(tpl, "addMergeData",  addMergeData);
+  Nan::SetPrototypeMethod(tpl, "setReturnType", setReturnType);
+  Nan::SetPrototypeMethod(tpl, "setEnvelopeId", setEnvelopeId);
+  Nan::SetPrototypeMethod(tpl, "setVirtualMta", setVirtualMta);
+  Nan::SetPrototypeMethod(tpl, "addDateHeader", addDateHeader);
+
+  constructor.Reset(tpl->GetFunction());
+  exports->Set(Nan::New("PMTAMessage").ToLocalChecked(),
+    tpl->GetFunction());
+}
+
+void PMTAMessage::New (const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  if (!info.IsConstructCall()) {
+    Nan::ThrowError(Nan::TypeError(
+      "Use the `new` operator to create PMTAMessage")
     );
   }
 
-  PMTAConnection* obj = ObjectWrap::Unwrap<PMTAConnection>(args.This());
-  PMTAMessage* mobj = ObjectWrap::Unwrap<PMTAMessage>(args[0]->ToObject());
-
-  Local<Object> ret = Object::New();
-
-  try {
-    obj->connection_->submit(*mobj->message_);
-    ret->Set(String::NewSymbol("submitted"), True());
-  } catch (std::exception& e) {
-    delete obj;
-    ret->Set(String::NewSymbol("submitted"), False());
-    ret->Set(String::NewSymbol("errorMessage"), String::New(e.what()));
+  if (!info[0]->IsString()) {
+    Nan::ThrowError(Nan::TypeError(
+      "PMTAMessage(string address): `address` must be a string"));
   }
 
-  return scope.Close(ret);
-}
-
-Persistent<FunctionTemplate> PMTAMessage::constructor;
-
-void PMTAMessage::Init(Handle<Object> target) {
-  HandleScope scope;
-
-  Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
-  Local<String> name = String::NewSymbol("PMTAMessage");
-
-  constructor = Persistent<FunctionTemplate>::New(tpl);
-  constructor->InstanceTemplate()->SetInternalFieldCount(1);
-  constructor->SetClassName(name);
-
-  NODE_SET_PROTOTYPE_METHOD(constructor, "sender", Sender);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "addData", AddData);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setVerp", SetVerp);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setJobId", SetJobId);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "beginPart", BeginPart);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setEncoding", SetEncoding);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "addRecipient", AddRecipient);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "addMergeData", AddMergeData);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setReturnType", SetReturnType);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setEnvelopeId", SetEnvelopeId);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setVirtualMta", SetVirtualMta);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "addDateHeader", AddDateHeader);
-
-  target->Set(name, constructor->GetFunction());
-}
-
-PMTAMessage::PMTAMessage(const char* sender)
-  : ObjectWrap(),
-    sender_(sender) { message_ = new pmta::submitter::Message(sender); }
-
-PMTAMessage::~PMTAMessage() { delete message_; }
-
-Handle<Value> PMTAMessage::New(const Arguments& args) {
-  HandleScope scope;
-
-  if (!args.IsConstructCall()) {
-    return ThrowException(Exception::TypeError(
-        String::New("Message(sender): Use `new` operator"))
-    );
-  }
-
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-      String::New("Message(sender): insufficient arguments"))
-    );
-  }
-
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-        String::New("Message(sender): `sender` must be a string")));
-  }
-
-  v8::String::Utf8Value param1(args[0]->ToString());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* sender = strdup(*param1);
 
   try {
     PMTAMessage* obj = new PMTAMessage(sender);
-    obj->Wrap(args.This());
+    obj->Wrap(info.This());
+    info.GetReturnValue().Set(info.This());
   } catch (std::exception& e) {
-    return ThrowException(Exception::TypeError(String::New(e.what())));
+    Nan::ThrowError(Nan::TypeError(Nan::New(e.what()).ToLocalChecked()));
   }
-
-  return args.This();
 }
 
-Handle<Value> PMTAMessage::Sender(const Arguments& args) {
-  HandleScope scope;
-
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  return scope.Close(String::New(obj->sender_));
+void PMTAMessage::sender (const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  info.GetReturnValue().Set(
+    Nan::New<v8::String>(obj->mSender).ToLocalChecked());
 }
 
-Handle<Value> PMTAMessage::SetVerp(const Arguments& args) {
-  HandleScope scope;
-
-  if (!args[0]->IsBoolean() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("setVerp(true|false)")));
+void PMTAMessage::setVerp (const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  if (!info[0]->IsBoolean() || info.Length() < 1) {
+    Nan::ThrowError(Nan::TypeError("setVerp(true|false)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  Local<Boolean> param1(args[0]->ToBoolean());
-  bool verp = param1->BooleanValue();
-
-  obj->message_->setVerp(verp);
-
-  return scope.Close(Undefined());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::Local<v8::Boolean> param0(info[0]->ToBoolean());
+  bool verp = param0->BooleanValue();
+  obj->mMessage->setVerp(verp);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::SetEncoding(const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::setEncoding
+  (const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (!args[0]->IsString() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("setEncoding(PmtaMsgENCODING messageEncoding)")));
+  if (!info[0]->IsString() || info.Length() < 1) {
+    Nan::ThrowError(Nan::Error("setEncoding(String encoding)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
-  char* cmp = strdup(*param1);
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value psetEncoding(info[0]->ToString());
+  const char *set_encoding(*psetEncoding);
 
-  PmtaMsgENCODING enc;
+  PmtaMsgENCODING encoding;
 
-  if (strcmp(cmp, "ENCODING_7BIT") == 0) {
-    enc = PmtaMsgENCODING_7BIT;
-  } else if (strcmp(cmp, "ENCODING_8BIT") == 0) {
-    enc = PmtaMsgENCODING_8BIT;
-  } else if (strcmp(cmp, "ENCODING_BASE64") == 0) {
-    enc = PmtaMsgENCODING_BASE64;
+  if (strcmp(set_encoding, "ENCODING_7BIT") == 0) {
+    encoding = PmtaMsgENCODING_7BIT;
+  } else if (strcmp(set_encoding, "ENCODING_8BIT") == 0) {
+    encoding = PmtaMsgENCODING_8BIT;
+  } else if (strcmp(set_encoding, "ENCODING_BASE64") == 0) {
+    encoding = PmtaMsgENCODING_BASE64;
   } else {
-    enc = PmtaMsgENCODING_7BIT;
+    encoding = PmtaMsgENCODING_7BIT;
   }
 
-  obj->message_->setEncoding(enc);
-
-  return scope.Close(Undefined());
+  obj->mMessage->setEncoding(encoding);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::SetJobId (const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::setJobId (const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (!args[0]->IsString() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("setJobId(String jobid)")));
+  if (!info[0]->IsString() || info.Length() < 1) {
+    Nan::ThrowError(Nan::Error("setJobId(String jobid)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* jobid = strdup(*param1);
 
-  obj->message_->setJobId(jobid);
-
-  return scope.Close(Undefined());
+  obj->mMessage->setJobId(jobid);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::SetReturnType(const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::setReturnType (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (!args[0]->IsString() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("setReturnType(PmtaMsgRETURN returnType)")));
+  if (!info[0]->IsString() || info.Length() < 1) {
+  Nan::ThrowError(Nan::Error("setReturnType(PmtaMsgRETURN returnType)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value param1(info[0]->ToString());
   char* cmp = strdup(*param1);
 
   PmtaMsgRETURN ret;
@@ -364,267 +241,240 @@ Handle<Value> PMTAMessage::SetReturnType(const Arguments& args) {
     ret = PmtaMsgRETURN_HEADERS;
   } else {
     ret = PmtaMsgRETURN_HEADERS;
-  } 
-
-  obj->message_->setReturnType(ret);
-
-  return scope.Close(Undefined());
-}
-
-Handle<Value> PMTAMessage::SetEnvelopeId(const Arguments& args) {
-  HandleScope scope;
-
-  if (!args[0]->IsString() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("setEnvelopeId(String envelopeId)")));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
+  obj->mMessage->setReturnType(ret);
+  info.GetReturnValue().Set(Nan::Undefined());
+}
+
+void PMTAMessage::setEnvelopeId (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
+
+  if (!info[0]->IsString() || info.Length() < 1) {
+    Nan::ThrowError(Nan::Error("setEnvelopeId(String envelopeId)"));
+  }
+
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* eid = strdup(*param1);
 
-  obj->message_->setEnvelopeId(eid);
-
-  return scope.Close(Undefined());
+  obj->mMessage->setEnvelopeId(eid);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::SetVirtualMta(const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::setVirtualMta (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (!args[0]->IsString() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("setVirtualMta(String vmta)")));
+  if (!info[0]->IsString() || info.Length() < 1) {
+  Nan::ThrowError(Nan::Error("setVirtualMta(String vmta)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* vmta = strdup(*param1);
 
-  obj->message_->setVirtualMta(vmta);
-
-  return scope.Close(Undefined());
+  obj->mMessage->setVirtualMta(vmta);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::BeginPart(const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::beginPart(const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (!args[0]->IsInt32() || args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("beginPart(Int part)")));
+  if (!info[0]->IsInt32() || info.Length() < 1) {
+  Nan::ThrowError(Nan::Error("beginPart(Int part)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  int part = args[0]->ToInteger()->Value();
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  int part = info[0]->ToInteger()->Value();
 
   if (part <= 1) {
-    return ThrowException(Exception::TypeError(
-        String::New("beginPart(Int part): `part` must be greater than 1")));
+  Nan::ThrowError(
+    Nan::Error("beginPart(Int part): `part` must be greater than 1"));
   }
-
-  obj->message_->beginPart(part);
-
-  return scope.Close(Undefined());
+  obj->mMessage->beginPart(part);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::AddData (const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::addData (const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (args.Length() < 2) {
-    return ThrowException(Exception::TypeError(
-      String::New("addData(String data, Int len): insufficient arguments")));
+  if (info.Length() < 2) {
+    Nan::ThrowError(
+      Nan::Error("addData(String data, Int len): insufficient arguments"));
   }
 
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-      String::New("addData(String data, Int len): `data` must be a string"))
-    );
+  if (!info[0]->IsString()) {
+    Nan::ThrowError(
+      Nan::Error("addData(String data, Int len): `data` must be a string"));
   }
 
-  if (!args[1]->IsInt32()) {
-    return ThrowException(Exception::TypeError(
-      String::New("addData(String data, Int len): `len` must be an integer")));
+  if (!info[1]->IsInt32()) {
+    Nan::ThrowError(
+      Nan::Error("addData(String data, Int len): `len` must be an integer"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* data = strdup(*param1);
-  int length = args[1]->ToInteger()->Value();
+  int length = info[1]->ToInteger()->Value();
 
-  obj->message_->addData(data, length);
-
-  return scope.Close(Undefined());
+  obj->mMessage->addData(data, length);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::AddMergeData (const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::addMergeData (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (args.Length() < 2) {
-    return ThrowException(Exception::TypeError(
-      String::New("addMergeData(String data, Int len): insufficient arguments"))
-    );
+  if (info.Length() < 2) {
+    Nan::ThrowError(
+      Nan::Error("addData(String data, Int len): insufficient arguments"));
   }
 
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-      String::New(
-        "addMergeData(String data, Int len): `data` must be a string")));
+  if (!info[0]->IsString()) {
+    Nan::ThrowError(
+      Nan::Error("addData(String data, Int len): `data` must be a string"));
   }
 
-  if (!args[1]->IsInt32()) {
-    return ThrowException(Exception::TypeError(
-      String::New(
-        "addMergeData(String data, Int len): `len` must be an integer")));
+  if (!info[1]->IsInt32()) {
+    Nan::ThrowError(
+      Nan::Error("addData(String data, Int len): `len` must be an integer"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  v8::String::Utf8Value param1(args[0]->ToString());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* data = strdup(*param1);
-  int length = args[1]->ToInteger()->Value();
+  int length = info[1]->ToInteger()->Value();
 
-  obj->message_->addMergeData(data, length);
-
-  return scope.Close(Undefined());
+  obj->mMessage->addMergeData(data, length);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::AddDateHeader (const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::addDateHeader (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  obj->message_->addDateHeader();
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  obj->mMessage->addDateHeader();
 
-  return scope.Close(Undefined());
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Handle<Value> PMTAMessage::AddRecipient (const Arguments& args) {
-  HandleScope scope;
+void PMTAMessage::addRecipient (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-      String::New("addRecipient(Recipient recipient)")));
+  if (info.Length() < 1) {
+  Nan::ThrowError(Nan::Error("addRecipient(Recipient recipient)"));
   }
 
-  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(args.This());
-  PMTARecipient* robj = ObjectWrap::Unwrap<PMTARecipient>(args[0]->ToObject());
+  PMTAMessage* obj = ObjectWrap::Unwrap<PMTAMessage>(info.Holder());
+  PMTARecipient* robj = ObjectWrap::Unwrap<PMTARecipient>(info[0]->ToObject());
 
-  obj->message_->addRecipient(*robj->recipient_);
+  obj->mMessage->addRecipient(*robj->mRecipient);
 
-  return scope.Close(Undefined());
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-Persistent<FunctionTemplate> PMTARecipient::constructor;
+/*
+ * PMTARecipient
+ */
+Nan::Persistent<v8::Function> PMTARecipient::constructor;
 
-void PMTARecipient::Init(Handle<Object> target) {
-  HandleScope scope;
-
-  Local<FunctionTemplate> tpl = FunctionTemplate::New(New);
-  Local<String> name = String::NewSymbol("PMTARecipient");
-
-  constructor = Persistent<FunctionTemplate>::New(tpl);
-  constructor->InstanceTemplate()->SetInternalFieldCount(1);
-  constructor->SetClassName(name);
-
-  NODE_SET_PROTOTYPE_METHOD(constructor, "address", Address);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "setNotify", SetNotify);
-  NODE_SET_PROTOTYPE_METHOD(constructor, "defineVariable", DefineVariable);
-
-  target->Set(name, constructor->GetFunction());
+PMTARecipient::PMTARecipient (const char* pAddress) : mAddress(pAddress) {
+  mRecipient = new Recipient(mAddress);
 }
 
-PMTARecipient::PMTARecipient(const char* address)
-  : ObjectWrap(),
-    address_(address) { recipient_ = new Recipient(address); }
+PMTARecipient::~PMTARecipient (void) {
+  delete mRecipient;
+}
+ 
+void PMTARecipient::Init (v8::Local<v8::Object> exports) {
+  Nan::HandleScope scope;
 
-PMTARecipient::~PMTARecipient() { delete recipient_; }
+  v8::Local<v8::FunctionTemplate> tpl = Nan::New<v8::FunctionTemplate>(New);
+  tpl->SetClassName(Nan::New("PMTARecipient").ToLocalChecked());
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
-Handle<Value> PMTARecipient::New(const Arguments& args) {
-  HandleScope scope;
+  Nan::SetPrototypeMethod(tpl,  "address",          address);
+  Nan::SetPrototypeMethod(tpl,  "defineVariable",   defineVariable);
+  Nan::SetPrototypeMethod(tpl,  "setNotify",        setNotify);
 
-  if (!args.IsConstructCall()) {
-    return ThrowException(Exception::TypeError(
-      String::New("Recipient(String address) use `new` operator"))
+  constructor.Reset(tpl->GetFunction());
+  exports->Set(Nan::New("PMTARecipient").ToLocalChecked(),
+    tpl->GetFunction());
+}
+
+void PMTARecipient::New (const Nan::FunctionCallbackInfo<v8::Value>& info) {
+
+  if (!info.IsConstructCall()) {
+    Nan::ThrowError(Nan::TypeError(
+      "Use the `new` operator to create PMTARecipient")
     );
   }
 
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-      String::New("Recipient(String address): `address must be a string`")));
+  if (!info[0]->IsString()) {
+    Nan::ThrowError(Nan::TypeError(
+      "PMTARecipient(string address): `address` must be a string"));
   }
 
-  v8::String::Utf8Value param1(args[0]->ToString());
+  v8::String::Utf8Value param1(info[0]->ToString());
   const char* addr = strdup(*param1);
 
-  try {
-    PMTARecipient* obj = new PMTARecipient(addr);
-    obj->recipient_->defineVariable("*parts", "1");
-    obj->Wrap(args.This());
-  } catch (std::exception& e) {
-    return ThrowException(Exception::TypeError(String::New(e.what())));
-  }
-
-  return args.This();
+  PMTARecipient* obj = new PMTARecipient(addr);
+  obj->Wrap(info.This());
+  info.GetReturnValue().Set(info.This());
 }
 
-Handle<Value> PMTARecipient::DefineVariable(const Arguments& args) {
-  HandleScope scope;
-
-  if (!args.Length() < 2) {
-    return ThrowException(Exception::TypeError(
-      String::New("defineVariable(String name, String value)")));
-  }
-
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-      String::New(
-        "defineVariable(String name, String value): `name` must be a string"))
-      );
-    }
-
-  if (!args[0]->IsString()) {
-    return ThrowException(Exception::TypeError(
-      String::New(
-        "defineVariable(String name, String value): `value` must be a string"))
-    );
-  }
-
-  PMTARecipient* obj = ObjectWrap::Unwrap<PMTARecipient>(args.This());
-  v8::String::Utf8Value p0(args[0]->ToString());
-  v8::String::Utf8Value p1(args[1]->ToString());
-  char* name = strdup(*p0);
-  char* value = strdup(*p1);
-
-  obj->recipient_->defineVariable(name, value);
-
-  return scope.Close(Undefined());
+void PMTARecipient::address (const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  PMTARecipient* obj = ObjectWrap::Unwrap<PMTARecipient>(info.Holder());
+  info.GetReturnValue().Set(
+    Nan::New<v8::String>(obj->mAddress).ToLocalChecked());
 }
 
-Handle<Value> PMTARecipient::SetNotify(const Arguments& args) {
-  HandleScope scope;
+void PMTARecipient::setNotify (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-      String::New("setNotify(PmtaRcptNOTIFY)")));
+  if (info.Length() < 1) {
+    Nan::ThrowError(Nan::TypeError("setNotify(PmtaRcptNOTIFY)"));
   }
 
-  PMTARecipient* obj = ObjectWrap::Unwrap<PMTARecipient>(args.This());
-  int notifywhen = args[0]->ToInteger()->Value();
+  if (!info[0]->IsNumber()) {
+    Nan::ThrowError(Nan::TypeError("Argument must be a number"));
+  }
 
-  obj->recipient_->setNotify(notifywhen);
+  PMTARecipient* obj  = ObjectWrap::Unwrap<PMTARecipient>(info.Holder());
+  int notify_when     = info[0]->ToInteger()->Value();
 
-  return scope.Close(Undefined());
+  obj->mRecipient->setNotify(notify_when);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
+void PMTARecipient::defineVariable (
+  const Nan::FunctionCallbackInfo<v8::Value>& info) {
 
-Handle<Value> PMTARecipient::Address(const Arguments& args) {
-  HandleScope scope;
+  if (info.Length() < 2) {
+    Nan::ThrowError(Nan::TypeError("defineVariable(name, value)"));
+  }
 
-  PMTARecipient* obj = ObjectWrap::Unwrap<PMTARecipient>(args.This());
-  return scope.Close(String::New(obj->address_));
+  if (!info[0]->IsString()) {
+    Nan::ThrowError(Nan::TypeError("`name` must be a string"));
+  }
+    
+  if (!info[1]->IsString()) {
+    Nan::ThrowError(Nan::TypeError("`value` must be a string"));
+  }
+    
+  PMTARecipient* obj    = ObjectWrap::Unwrap<PMTARecipient>(info.Holder());
+  v8::String::Utf8Value pName(info[0]->ToString());
+  v8::String::Utf8Value pValue(info[1]->ToString());
+
+  char* name  = strdup(*pName);
+  char* value = strdup(*pValue);
+
+  obj->mRecipient->defineVariable(name, value);
+  info.GetReturnValue().Set(Nan::Undefined());
 }
 
-void RegisterModule(Handle<Object> target) {
-  PMTAMessage::Init(target);
-  PMTARecipient::Init(target);
-  PMTAConnection::Init(target);
+void RegisterModule (v8::Local<v8::Object> exports) {
+  PMTAMessage::Init(exports);
+  PMTARecipient::Init(exports);
+  PMTAConnection::Init(exports);
 }
 
 NODE_MODULE(pmta, RegisterModule);
