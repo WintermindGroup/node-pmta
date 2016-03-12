@@ -1,7 +1,7 @@
-### Overview
 node-pmta provides a NodeJS module ('pmta') for creating and submitting 
 messages to [pmta](http://www.port25.com/powermta/powermta-overview/overview/).
 
+### Overview
 The `pmta` module includes all the classes and methods detailed in the Pmta
 C++ submission API. For more information on these methods consult the Pmta
 user guide or run doxygen to build local documentation.
@@ -15,6 +15,7 @@ user guide or run doxygen to build local documentation.
     npm install danielsen/node-pmta
 
 or
+
     npm install pmta
 
 or
