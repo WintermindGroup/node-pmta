@@ -12,8 +12,12 @@ user guide or run doxygen to build local documentation.
 * [pmta](http://www.port25.com) submission API.
 
 ### Installation
-Installation is still manually managed at the moment. Additional convenience
-will be added soon.
+    npm install danielsen/node-pmta
+
+or
+    npm install pmta
+
+or
 
     cd /path/to/myapp/
     mkdir pmta
