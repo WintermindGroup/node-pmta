@@ -26,7 +26,7 @@
 var pmta = require('../index.js');
 
 // PMTA options. Change as needed to reflect your installation
-var pmta_host = "10.0.0.47";
+var pmta_host = "127.0.0.1";
 var pmta_port = 25;
 
 // Message options. Change as needed.

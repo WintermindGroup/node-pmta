@@ -4,7 +4,10 @@ messages to [pmta](http://www.port25.com/powermta/powermta-overview/overview/).
 ### Overview
 The `pmta` module includes all the classes and methods detailed in the Pmta
 C++ submission API. For more information on these methods consult the Pmta
-user guide or run doxygen to build local documentation.
+user guide or run doxygen to build local documentation. This module has been
+tested up to node version 6.10.2 on Debian 8. Your mileage may vary on other
+distros. Please file an issue if you find you can't build against a specific
+node version or distro.
 
 ### Prerequisites
 * [NodeJS v0.10+](http://www.nodejs.org)
