@@ -416,9 +416,13 @@ void PMTARecipient::New (const Nan::FunctionCallbackInfo<v8::Value>& info) {
   v8::String::Utf8Value param1(info[0]->ToString());
   const char* addr = strdup(*param1);
 
-  PMTARecipient* obj = new PMTARecipient(addr);
-  obj->Wrap(info.This());
-  info.GetReturnValue().Set(info.This());
+  try {
+    PMTARecipient* obj = new PMTARecipient(addr);
+    obj->Wrap(info.This());
+    info.GetReturnValue().Set(info.This());
+  } catch (std::exception& e) {
+    Nan::ThrowError(Nan::TypeError(Nan::New(e.what()).ToLocalChecked()));
+  }
 }
 
 void PMTARecipient::address (const Nan::FunctionCallbackInfo<v8::Value>& info) {
